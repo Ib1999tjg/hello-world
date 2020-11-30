@@ -1,0 +1,208 @@
+---
+title: "LAPORAN PENGERJAAN UTS DMKM"
+author: "Muhammad Ibrah Reynaldi Tanjung"
+date: "10/27/2020"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## ID3 Method for Somerville Happiness Survey Data Set
+
+# Library yang kira-kira bakal dibutuhkan
+```{r}
+library(dplyr)
+library(visdat)
+library(data.tree)
+library(caret)
+```
+
+# Pembacaan data
+```{r}
+dataku <- read.csv("SomervilleHappinessSurvey2015.txt", sep = ",")
+head(dataku)
+str(dataku)
+```
+
+# Konversi Data
+Berdasarkan teorinya, metode ID3 tidak dapat menghandle data kontinu, sehingga data perlu diubah menjadi tipe data faktor (kategorik).
+```{r}
+for(i in names(dataku)){
+  dataku[,i]= as.factor(dataku[,i])
+}
+str(dataku)
+```
+
+# Cek missing value
+```{r}
+summary(dataku)
+sapply(dataku, function(x) sum(is.na(x)))
+```
+
+Kesimpulan dari hasil di atas : Tidak ada missing value. Tampilan visual nya dapat dilihat di bawah ini :
+```{r}
+vis_miss(dataku)
+```
+
+Terlihat bahwa tidak terdapat missing value (present data = 100%).
+
+# Data Modeling & Model Validation
+```{r}
+str(dataku)
+dataku$D <- recode(dataku$D, '0'="Unhappy", '1'="happy")
+levels(dataku$D)
+```
+
+```{r}
+IsPure <- function(data) {
+  length(unique(data[,ncol(data)])) == 1
+}
+
+Entropy <- function( vls ) {
+  res <- vls/sum(vls) * log2(vls/sum(vls))
+  res[vls == 0] <- 0
+  -sum(res)
+}
+
+
+InformationGain <- function( tble ) {
+  tble <- as.data.frame.matrix(tble)
+  entropyBefore <- Entropy(colSums(tble))
+  s <- rowSums(tble)
+  entropyAfter <- sum (s / sum(s) * apply(tble, MARGIN = 1, FUN = Entropy ))
+  informationGain <- entropyBefore - entropyAfter
+  return (informationGain)
+}
+
+TrainID3 <- function(node, data) {
+    
+  node$obsCount <- nrow(data)
+  
+  #if the data-set is pure (e.g. all toxic), then
+  if (IsPure(data)) {
+    #construct a leaf having the name of the pure feature (e.g. 'toxic')
+    child <- node$AddChild(unique(data[,ncol(data)]))
+    node$feature <- tail(names(data), 1)
+    child$obsCount <- nrow(data)
+    child$feature <- ''
+  } else {
+    #chose the feature with the highest information gain (e.g. 'color')
+    ig <- sapply(colnames(data)[-ncol(data)], 
+            function(x) InformationGain(
+              table(data[,x], data[,ncol(data)])
+              )
+            )
+    feature <- names(ig)[ig == max(ig)][1]
+    
+    node$feature <- feature
+    
+    #take the subset of the data-set having that feature value
+    childObs <- split(data[,!(names(data) %in% feature)], data[,feature], drop = TRUE)
+    
+    for(i in 1:length(childObs)) {
+      #construct a child having the name of that feature value (e.g. 'red')
+      child <- node$AddChild(names(childObs)[i])
+      
+      #call the algorithm recursively on the child and the subset      
+      TrainID3(child, childObs[[i]])
+    }
+    
+  }
+  
+  
+
+}
+
+Predict <- function(tree, features) {
+  if (tree$children[[1]]$isLeaf) return (tree$children[[1]]$name)
+  child <- tree$children[[features[[tree$feature]]]]
+  return ( Predict(child, features))
+}
+```
+
+Mendapatkan Info Gain tiap Kolom
+```{r}
+# X1
+InformationGain(table(dataku[, c('X1','D')]))
+```
+
+```{r}
+# X2
+InformationGain(table(dataku[, c('X2','D')]))
+```
+
+```{r}
+# X3
+InformationGain(table(dataku[, c('X3','D')]))
+```
+
+```{r}
+# X4
+InformationGain(table(dataku[, c('X4','D')]))
+```
+
+```{r}
+# X5
+InformationGain(table(dataku[, c('X5','D')]))
+```
+
+```{r}
+# X6
+InformationGain(table(dataku[, c('X6','D')]))
+```
+
+Membuat Model tree ID3
+```{r}
+tree <- Node$new("dataku")
+#TrainID3(tree, dataku)
+#print(tree, "feature", "obsCount")
+```
+
+## Decision Tree (rpart/CART)
+
+```{r}
+library(rpart)
+library(rpart.plot)
+library(rattle)
+```
+
+Definisikan Model
+```{r}
+model <- D~X1+X2+X3+X4+X5+X6
+```
+
+Split Validation
+```{r}
+set.seed(42) # angka random
+sampel <- sample(2, nrow(dataku), replace = T, prob = c(0.8,0.2))
+trainingdat <- dataku[sampel==1, ]
+testingdat <- dataku[sampel==2, ]
+```
+
+Model with Split Validation
+```{r}
+dtree <- rpart(model, data = trainingdat, method = 'class')
+rpart.plot(dtree, extra = 106)
+```
+
+```{r}
+fancyRpartPlot(dtree)
+```
+
+Prediksi
+```{r}
+pred_dtree <- predict(dtree, newdata = testingdat, type = 'class')
+confusionMatrix(pred_dtree, testingdat$D)
+```
+
+Interpretasi Confusion Matrix :
+
+Akurasi = 0.4545, artinya akurasi model nya sebesar 45,45% (buruk).
+
+Sensificity/Recall = 0.6316, artinya dari 100 kelompok unhappy, 63 sampai 64 diantaranya berhasil diprediksi dengan benar oleh model.
+
+Specificity = 0.2143, artinya dari 100 kelompok selain unhappy dalam hal ini kelompok happy, 21 sampai 22 diantaranya diprediksi dengan benar oleh model.
+
+Precision = 0.5217, artinya dari 100 prediksi positif (unhappy), 52 sampai 53 diantaranya berhasil diprediksi dengan benar.
